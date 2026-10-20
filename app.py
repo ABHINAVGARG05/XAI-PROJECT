@@ -8,6 +8,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.charts import FRAUD_RED, LEGIT_BLUE, drift_chart, gauge, waterfall
+from src.demo_view import demo_tab
 from src.drift import run_all_cohorts
 from src.explainability import (
     base_value,
@@ -21,8 +23,6 @@ from src.paths import DRIFT_LOG_PATH, EVAL_REPORT_PATH, TARGET
 from src.preprocess import load_and_split
 from src.train import load_model
 
-FRAUD_RED = "#d62728"
-LEGIT_BLUE = "#1f77b4"
 PR_AUC_DROP_ALERT = 0.05
 DRIFT_THRESHOLD = 0.20
 
@@ -97,43 +97,8 @@ def global_view(model, X_test: pd.DataFrame, features: list[str]) -> None:
     st.dataframe(table.style.apply(highlight_drift, axis=1).format("{:.4f}"))
 
 
-def gauge(prob: float, threshold: float) -> go.Figure:
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=prob * 100,
-            number={"suffix": "%", "valueformat": ".2f"},
-            title={"text": "Fraud probability"},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": FRAUD_RED if prob >= threshold else LEGIT_BLUE},
-                "steps": [{"range": [0, threshold * 100], "color": "#eef4fb"}, {"range": [threshold * 100, 100], "color": "#fdecec"}],
-                "threshold": {"line": {"color": "#333", "width": 3}, "value": threshold * 100},
-            },
-        )
-    )
-    fig.update_layout(height=280, margin=dict(l=20, r=20, t=60, b=10))
-    return fig
 
 
-def waterfall(data: dict) -> go.Figure:
-    fig = go.Figure(
-        go.Waterfall(
-            orientation="h",
-            base=data["base_value"],
-            x=data["shap_vals"][::-1],
-            y=data["features"][::-1],
-            increasing={"marker": {"color": FRAUD_RED}},
-            decreasing={"marker": {"color": LEGIT_BLUE}},
-            connector={"line": {"color": "#999", "width": 1}},
-        )
-    )
-    fig.update_layout(
-        title=f"SHAP contributions: base {data['base_value']:.2f} → f(x) {data['prediction']:.2f} (log-odds)",
-        height=520,
-        margin=dict(l=10, r=10, t=50, b=10),
-    )
-    return fig
 
 
 def transaction_explainer(model, splits: dict, features: list[str], threshold: float) -> None:
@@ -173,22 +138,6 @@ def transaction_explainer(model, splits: dict, features: list[str], threshold: f
         st.success("Explanation appended to logs/explanation_log.jsonl")
 
 
-def drift_chart(name: str, signal: dict) -> go.Figure:
-    shifts = pd.DataFrame(signal["feature_shifts"]).T.nlargest(5, "shift_pct")
-    fig = go.Figure(
-        [
-            go.Bar(name="baseline (train)", x=shifts.index, y=shifts["baseline"], marker_color=LEGIT_BLUE),
-            go.Bar(name=name, x=shifts.index, y=shifts["cohort"], marker_color=FRAUD_RED),
-        ]
-    )
-    fig.update_layout(
-        barmode="group",
-        title=f"{name}: top-5 shifted features (n={signal['cohort_size']:,})",
-        yaxis_title="mean |SHAP|",
-        height=360,
-        margin=dict(l=10, r=10, t=50, b=10),
-    )
-    return fig
 
 
 def drift_monitor(model, splits: dict) -> None:
@@ -238,13 +187,15 @@ def main() -> None:
         st.error(str(exc))
         st.stop()
 
-    tab_global, tab_explain, tab_drift = st.tabs(["Global View", "Transaction Explainer", "Drift Monitor"])
-    with tab_global:
+    threshold = (load_report() or {}).get("threshold", 0.5)
+    tabs = st.tabs(["Live Demo", "Global View", "Transaction Explainer", "Drift Monitor"])
+    with tabs[0]:
+        demo_tab(model, splits, features, threshold, get_test_shap(model, splits["test"][features]))
+    with tabs[1]:
         global_view(model, splits["test"][features], features)
-    with tab_explain:
-        transaction_explainer(model, splits, features, (load_report() or {}).get("threshold", 0.5))
-    with tab_drift:
+    with tabs[2]:
+        transaction_explainer(model, splits, features, threshold)
+    with tabs[3]:
         drift_monitor(model, splits)
-
 
 main()
