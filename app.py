@@ -10,6 +10,7 @@ import streamlit as st
 
 from src.charts import FRAUD_RED, LEGIT_BLUE, drift_chart, gauge, waterfall
 from src.demo_view import demo_tab
+from src.scenario_view import scenario_tab
 from src.drift import run_all_cohorts
 from src.explainability import (
     base_value,
@@ -188,14 +189,16 @@ def main() -> None:
         st.stop()
 
     threshold = (load_report() or {}).get("threshold", 0.5)
-    tabs = st.tabs(["Live Demo", "Global View", "Transaction Explainer", "Drift Monitor"])
+    tabs = st.tabs(["Live Demo", "Custom Scenario", "Global View", "Transaction Explainer", "Drift Monitor"])
     with tabs[0]:
         demo_tab(model, splits, features, threshold, get_test_shap(model, splits["test"][features]))
     with tabs[1]:
-        global_view(model, splits["test"][features], features)
+        scenario_tab(model, splits, features, threshold)
     with tabs[2]:
-        transaction_explainer(model, splits, features, threshold)
+        global_view(model, splits["test"][features], features)
     with tabs[3]:
+        transaction_explainer(model, splits, features, threshold)
+    with tabs[4]:
         drift_monitor(model, splits)
 
 main()
