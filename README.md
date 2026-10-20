@@ -60,6 +60,14 @@ Open the **Live Demo** tab (`uv run streamlit run app.py`).
    values, counterfactual, probability, model version, UTC timestamp) appears
    underneath. This is the GDPR Art. 22 "right to explanation" evidence.
 
+7. **Custom Scenario** tab — build your own transaction: set the amount and
+   time of day, and a *behaviour pattern* slider that moves the anonymised
+   V1–V28 from the typical legitimate profile to the typical fraud profile
+   (training medians). Story presets (☕ morning coffee → 💳 account takeover)
+   load in one click; individual V-features can be overridden by hand. Note
+   what the model learned: the behaviour pattern decides, while amount and
+   time barely move the probability.
+
 Then use **Global View** (what the model relies on overall), **Transaction
 Explainer** (full SHAP waterfall for any test transaction) and **Drift
 Monitor** (feature-importance shift across time cohorts) for the research
@@ -79,7 +87,7 @@ results.
 | Evaluate | `src/evaluate.py` | PR-AUC, F1 @ val-tuned threshold, Recall @ 1% FPR, MCC per cohort |
 | Audit log | `src/logger.py` | Append-only `logs/explanation_log.jsonl` |
 | Narrative | `src/narrative.py` | SHAP and counterfactuals turned into plain-English sentences |
-| Dashboard | `app.py`, `src/demo_view.py`, `src/charts.py` | Streamlit: Live Demo, Global View, Transaction Explainer, Drift Monitor |
+| Dashboard | `app.py`, `src/demo_view.py`, `src/scenario_view.py`, `src/charts.py` | Streamlit: Live Demo, Custom Scenario, Global View, Transaction Explainer, Drift Monitor |
 
 ## Design notes
 
