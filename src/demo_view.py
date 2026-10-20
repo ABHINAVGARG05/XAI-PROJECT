@@ -118,12 +118,42 @@ def demo_tab(model, splits: dict, features: list[str], threshold: float, test_sh
         edited = what_if_sliders(row, features, test_shap[idx], reference, key=f"demo_{idx}")
     is_edited = not np.allclose(edited.to_numpy(), row.to_numpy())
 
-    prob = float(model.predict_proba(edited)[0, 1])
-    shap_row = compute_shap_values(model, edited)[0] if is_edited else test_shap[idx]
-    truth = None if is_edited else ("Fraud" if test[TARGET].iloc[idx] == 1 else "Legitimate")
-    decision_card(prob, threshold, float(prob_all[idx]) if is_edited else None, truth)
+    render_decision(
+        model,
+        edited,
+        features,
+        threshold,
+        reference,
+        train,
+        transaction_id=f"demo_test_{test.index[idx]}" + ("_whatif" if is_edited else ""),
+        key="demo",
+        shap_row=None if is_edited else test_shap[idx],
+        truth=None if is_edited else ("Fraud" if test[TARGET].iloc[idx] == 1 else "Legitimate"),
+        original_prob=float(prob_all[idx]) if is_edited else None,
+    )
 
-    reasons = explain_reasons(shap_row, edited.iloc[0], features, reference)
+
+def render_decision(
+    model,
+    row: pd.DataFrame,
+    features: list[str],
+    threshold: float,
+    reference: dict[str, np.ndarray],
+    train: pd.DataFrame,
+    *,
+    transaction_id: str,
+    key: str,
+    shap_row: np.ndarray | None = None,
+    truth: str | None = None,
+    original_prob: float | None = None,
+) -> None:
+    """Decision card, plain-English reasons, DiCE counterfactual and audit logging for one row."""
+    prob = float(model.predict_proba(row)[0, 1])
+    if shap_row is None:
+        shap_row = compute_shap_values(model, row)[0]
+    decision_card(prob, threshold, original_prob, truth)
+
+    reasons = explain_reasons(shap_row, row.iloc[0], features, reference)
     left, right = st.columns(2)
     with left:
         st.markdown("#### 🔺 Why it looks suspicious")
@@ -133,21 +163,21 @@ def demo_tab(model, splits: dict, features: list[str], threshold: float, test_sh
         for r in reasons["against_fraud"] or [{"sentence": "_Nothing notable._"}]:
             st.markdown(f"- {r['sentence']}")
     with right:
-        st.plotly_chart(reasons_chart(reasons), width="stretch")
+        st.plotly_chart(reasons_chart(reasons), width="stretch", key=f"{key}_reasons")
 
     st.markdown("#### 🔄 What would change the decision?")
-    cf_key = ("cf", idx, tuple(np.round(edited.to_numpy()[0], 6)))
-    if st.button("Find the smallest change that flips it (DiCE)"):
-        st.session_state[cf_key] = get_counterfactual(model, train, edited, tuple(features), threshold)
+    cf_key = ("cf", tuple(np.round(row.to_numpy()[0], 6)))
+    if st.button("Find the smallest change that flips it (DiCE)", key=f"{key}_dice"):
+        st.session_state[cf_key] = get_counterfactual(model, train, row, tuple(features), threshold)
     cf = st.session_state.get(cf_key)
     if cf is not None:
         lines = counterfactual_sentences(cf, prob, threshold)
         st.markdown("\n".join(lines) if lines else "DiCE could not find a counterfactual for this one.")
 
     st.markdown("#### 🧾 Audit trail (GDPR Art. 22)")
-    if st.button("Record this decision and its explanation"):
+    if st.button("Record this decision and its explanation", key=f"{key}_log"):
         log_explanation(
-            transaction_id=f"demo_test_{test.index[idx]}" + ("_whatif" if is_edited else ""),
+            transaction_id=transaction_id,
             shap_values=dict(zip(features, map(float, shap_row))),
             counterfactual=cf or {},
             fraud_prob=prob,
