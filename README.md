@@ -39,6 +39,35 @@ uv run python -m src.evaluate
 uv run streamlit run app.py
 ```
 
+## Demo walkthrough (≈5 minutes)
+
+Open the **Live Demo** tab (`uv run streamlit run app.py`).
+
+1. **🚨 Fraud caught** — the model blocks the payment (87% vs an 85.3% threshold).
+   "Why it looks suspicious" lists V14, V12 and V10 at values lower than
+   virtually all normal transactions.
+2. **What if?** — open the expander and drag **V14** to the right. The fraud
+   probability falls live, the decision flips to APPROVED and the reasons
+   re-rank: the explanation tracks the model, not a canned story.
+3. **What would change the decision?** — click the DiCE button. It answers
+   with the smallest change that flips the outcome, e.g. *"would have been
+   BLOCKED if V14 were −15.70 instead of 5.28"*.
+4. **⚖️ Borderline call** — a legitimate payment scoring ~76%: suspicious,
+   but under the threshold, so it is approved. Shows why the threshold matters.
+5. **🕳️ Fraud missed** — an honest failure case: a real fraud the model
+   approves, and the explanation shows which features made it look normal.
+6. **🧾 Audit trail** — record the decision; the stored JSON record (SHAP
+   values, counterfactual, probability, model version, UTC timestamp) appears
+   underneath. This is the GDPR Art. 22 "right to explanation" evidence.
+
+Then use **Global View** (what the model relies on overall), **Transaction
+Explainer** (full SHAP waterfall for any test transaction) and **Drift
+Monitor** (feature-importance shift across time cohorts) for the research
+results.
+
+> V1–V28 are PCA components anonymised by the dataset provider, so the
+> explanations can say a value is *unusual*, not what it means in banking terms.
+
 ## Pipeline
 
 | Stage | Module | Notes |
@@ -49,7 +78,8 @@ uv run streamlit run app.py
 | Drift | `src/drift.py` | Per-feature relative shift in mean \|SHAP\|, alerts appended to `logs/drift_log.json` |
 | Evaluate | `src/evaluate.py` | PR-AUC, F1 @ val-tuned threshold, Recall @ 1% FPR, MCC per cohort |
 | Audit log | `src/logger.py` | Append-only `logs/explanation_log.jsonl` |
-| Dashboard | `app.py` | Streamlit: Global View, Transaction Explainer, Drift Monitor |
+| Narrative | `src/narrative.py` | SHAP and counterfactuals turned into plain-English sentences |
+| Dashboard | `app.py`, `src/demo_view.py`, `src/charts.py` | Streamlit: Live Demo, Global View, Transaction Explainer, Drift Monitor |
 
 ## Design notes
 
