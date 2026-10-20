@@ -64,6 +64,10 @@ def scenario_tab(model, splits: dict, features: list[str], threshold: float) -> 
     for col, (name, preset) in zip(cols, STORIES.items()):
         if col.button(name, width="stretch", key=f"story_{name}"):
             st.session_state.update(dict(zip(KEYS, preset)))
+            # A preset is a complete scenario: drop manual V-feature overrides and their values.
+            st.session_state["sc_override"] = []
+            for k in [k for k in st.session_state if k.startswith("sc_V")]:
+                del st.session_state[k]
     for k, default in zip(KEYS, next(iter(STORIES.values()))):
         st.session_state.setdefault(k, default)
 
