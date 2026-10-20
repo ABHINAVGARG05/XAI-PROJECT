@@ -71,6 +71,32 @@ def local_waterfall_data(
     }
 
 
+class ThresholdedModel:
+    """Re-centres a binary classifier so its decision threshold maps to 0.5.
+
+    DiCE picks the original class with argmax(predict_proba) and judges a flip
+    against a 0.5 probability cutoff, so wrapping ``predict`` alone is not
+    enough. A monotone piecewise-linear remap of P(fraud) keeps the ranking and
+    makes both rules agree with the tuned ``threshold``.
+    """
+
+    def __init__(self, model, threshold: float):
+        if not 0.0 < threshold < 1.0:
+            raise ValueError(f"threshold must be in (0, 1), got {threshold}")
+        self.model = model
+        self.threshold = threshold
+        self.classes_ = np.array([0, 1])
+
+    def predict_proba(self, X) -> np.ndarray:
+        p = self.model.predict_proba(X)[:, 1]
+        t = self.threshold
+        p_adj = np.where(p < t, p / (2 * t), 0.5 + (p - t) / (2 * (1 - t)))
+        return np.column_stack([1 - p_adj, p_adj])
+
+    def predict(self, X) -> np.ndarray:
+        return (self.model.predict_proba(X)[:, 1] >= self.threshold).astype(int)
+
+
 def _with_label(model, X_train: pd.DataFrame, feature_names: list[str]) -> pd.DataFrame:
     """DiCE needs the outcome column; fall back to model labels if it is absent."""
     if TARGET in X_train.columns:
@@ -85,19 +111,25 @@ def generate_counterfactual(
     X_train: pd.DataFrame,
     instance_df: pd.DataFrame,
     feature_names: list[str],
+    threshold: float = 0.5,
 ) -> dict:
     """One DiCE counterfactual flipping the predicted class of ``instance_df``.
 
+    The class is decided at ``threshold`` (the val-tuned decision threshold),
+    so the counterfactual explains the same decision the evaluated system makes.
     Returns ``{feature: (original_val, cf_val)}`` for changed features only, or
     ``{"error": ...}`` if DiCE cannot find one. Never raises.
     """
     try:
+        decision_model = ThresholdedModel(model, threshold)
         data = dice_ml.Data(
-            dataframe=_with_label(model, X_train, feature_names),
+            dataframe=_with_label(decision_model, X_train, feature_names),
             continuous_features=list(feature_names),
             outcome_name=TARGET,
         )
-        dice = dice_ml.Dice(data, dice_ml.Model(model=model, backend="sklearn"), method="random")
+        dice = dice_ml.Dice(
+            data, dice_ml.Model(model=decision_model, backend="sklearn"), method="random"
+        )
         query = instance_df[feature_names].iloc[[0]]
         result = dice.generate_counterfactuals(
             query, total_CFs=1, desired_class="opposite", random_seed=SEED, verbose=False

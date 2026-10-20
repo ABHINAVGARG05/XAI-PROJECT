@@ -50,8 +50,8 @@ def get_base_value(_model) -> float:
 
 
 @st.cache_data(show_spinner="Searching for a counterfactual with DiCE...")
-def get_counterfactual(_model, _train: pd.DataFrame, idx: int, instance: pd.DataFrame, features):
-    return generate_counterfactual(_model, _train, instance, list(features))
+def get_counterfactual(_model, _train: pd.DataFrame, idx: int, instance: pd.DataFrame, features, threshold):
+    return generate_counterfactual(_model, _train, instance, list(features), threshold)
 
 
 def load_report() -> dict | None:
@@ -97,7 +97,7 @@ def global_view(model, X_test: pd.DataFrame, features: list[str]) -> None:
     st.dataframe(table.style.apply(highlight_drift, axis=1).format("{:.4f}"))
 
 
-def gauge(prob: float) -> go.Figure:
+def gauge(prob: float, threshold: float) -> go.Figure:
     fig = go.Figure(
         go.Indicator(
             mode="gauge+number",
@@ -106,8 +106,9 @@ def gauge(prob: float) -> go.Figure:
             title={"text": "Fraud probability"},
             gauge={
                 "axis": {"range": [0, 100]},
-                "bar": {"color": FRAUD_RED if prob >= 0.5 else LEGIT_BLUE},
-                "steps": [{"range": [0, 50], "color": "#eef4fb"}, {"range": [50, 100], "color": "#fdecec"}],
+                "bar": {"color": FRAUD_RED if prob >= threshold else LEGIT_BLUE},
+                "steps": [{"range": [0, threshold * 100], "color": "#eef4fb"}, {"range": [threshold * 100, 100], "color": "#fdecec"}],
+                "threshold": {"line": {"color": "#333", "width": 3}, "value": threshold * 100},
             },
         )
     )
@@ -135,7 +136,7 @@ def waterfall(data: dict) -> go.Figure:
     return fig
 
 
-def transaction_explainer(model, splits: dict, features: list[str]) -> None:
+def transaction_explainer(model, splits: dict, features: list[str], threshold: float) -> None:
     test = splits["test"]
     X_test = test[features]
     idx = int(st.number_input("Transaction index (position in test set)", 0, len(test) - 1, 0))
@@ -145,7 +146,8 @@ def transaction_explainer(model, splits: dict, features: list[str]) -> None:
 
     left, right = st.columns([1, 2])
     with left:
-        st.plotly_chart(gauge(prob), width="stretch")
+        st.plotly_chart(gauge(prob, threshold), width="stretch")
+        st.caption(f"Decision threshold {threshold:.4f}: flagged as **{'fraud' if prob >= threshold else 'legitimate'}**")
         st.caption(f"True label: **{'fraud' if test[TARGET].iloc[idx] == 1 else 'legitimate'}**")
         st.dataframe(row.T.rename(columns={row.index[0]: "value"}), height=320)
     with right:
@@ -153,11 +155,11 @@ def transaction_explainer(model, splits: dict, features: list[str]) -> None:
         st.plotly_chart(waterfall(data), width="stretch")
 
     st.subheader("Counterfactual: what would need to change?")
-    cf = get_counterfactual(model, splits["train"], idx, row, tuple(features))
+    cf = get_counterfactual(model, splits["train"], idx, row, tuple(features), threshold)
     if "error" in cf:
         st.warning(f"DiCE: {cf['error']}")
     else:
-        target = "legitimate" if prob >= 0.5 else "fraud"
+        target = "legitimate" if prob >= threshold else "fraud"
         st.caption(f"Minimal changes found by DiCE to flip the prediction to **{target}**.")
         st.dataframe(pd.DataFrame(cf, index=["original", "counterfactual"]).T)
 
@@ -240,7 +242,7 @@ def main() -> None:
     with tab_global:
         global_view(model, splits["test"][features], features)
     with tab_explain:
-        transaction_explainer(model, splits, features)
+        transaction_explainer(model, splits, features, (load_report() or {}).get("threshold", 0.5))
     with tab_drift:
         drift_monitor(model, splits)
 
